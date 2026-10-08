@@ -1,0 +1,28 @@
+{
+  "summary": "Iter17 verified end-to-end: configurable IRT score scale per Try Out (snbt | tka | raw | custom) with auto rescore. Backend 9/9 pytest passed (test_iter17_irt_scale.py). Frontend: admin builder IrtScaleCard full flow (SNBT → TKA → Custom(100–300) → SNBT) each updates irt-scale-active badge and shows save toast; ManageTryouts list shows tryout-scale-<id> 'Skala IRT: ...' badge; edit dialog contains tryout-irt-scale-select (raw path confirmed updates badge to 'Skala IRT: SD/SMP — Nilai Asli (1–100)'); admin TryoutResults shows results-irt-hidden hint + '—' column in raw mode, and 'results-scale-label · Skala IRT: SNBT (0–1000)' + numeric Skor IRT '535 (θ 0.346)' after restoring to SNBT. Student (andi@lms.id) result page for to_1 shows 'irt-score-badge' with 'Skor IRT · SNBT (0–1000)' + 535 / θ 0.346 ± 0.981. to_1 restored to irt_scale='snbt' at end (seed state). Regression smoke on calibrate/blueprint endpoints via existing iter16 tests still passing.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter17_irt_scale.py",
+    "/app/test_reports/pytest/iter17.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes_admin.py now ~1000 lines (same comment carried from iter16): still worth splitting into routes_admin_tryouts.py / routes_admin_import.py.",
+    "In routes_admin.update_tryout, `scale_changed` compares `existing.get('irt_scale_custom')` to the normalized `custom` dict; for a Try Out that was previously 'custom' with slightly different float serialization in Mongo, equality may be false-positive and trigger an unnecessary rescore. Minor — rescore is idempotent.",
+    "IrtScaleCard dirty check uses `JSON.stringify(toCustomPayload(custom))` vs `data.irt_scale_custom`. When current scale is non-custom but server returns `irt_scale_custom=null`, this works; however `onCustomChange` writes raw string values from inputs (e.g. '100') while `toCustomPayload` coerces to number, so after a save the dirty flag is reliably reset — just worth a comment.",
+    "resolve_scale(custom) label uses int() cast which drops decimals if admin enters 10.5 min/max; UI inputs are type='number' step default 1 but spec allows arbitrary values. Negligible for current preset use."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter17_irt_scale.py", "/app/test_reports/iteration_17.json", "/app/test_reports/pytest/iter17.xml"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100%"},
+  "test_credentials": "admin@lms.id/Admin@12345, andi@lms.id/Siswa@12345",
+  "seed_data_creation": "None — tryouts created for POST default/custom tests are deleted inside the tests. to_1 was mutated during tests (tka → raw → custom(100,300,200,40) → snbt) and restored to seed state 'snbt' at the end.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New iter17 endpoints: GET /api/admin/irt-scales (4 presets snbt/tka/raw/custom), GET/PUT /api/admin/tryouts/{id}/irt-scale with {irt_scale, irt_scale_custom}, and TryoutBody now accepts irt_scale/irt_scale_custom on POST/PUT /api/admin/tryouts. Changing scale (either endpoint) rescored all submitted attempts. 'raw' scale sets attempt.irt_scaled=null and theta=null; results page shows '—'. Custom scale label is 'Kustom (min–max)'. Frontend components: /app/frontend/src/components/common/IrtScaleFields.jsx (shadcn Select, testIdPrefix pattern) and IrtScaleCard.jsx used in TryoutBuilder; ManageTryouts edit dialog uses IrtScaleFields with testIdPrefix='tryout-irt-scale'. Seed state restored.",
+  "rca of the issue": "N/A — no bugs found."
+}

@@ -140,7 +140,14 @@ Bangun platform Learning Management System (LMS) berbasis Role-Based Access Cont
 - **Skor IRT ditampilkan**: hasil siswa (`TryoutResult`) menampilkan Skor IRT + θ; tabel Hasil & Peringkat admin (`TryoutResults`) menambah kolom "Skor IRT". Submit attempt kini mengembalikan theta/irt_scaled + auto-recalibrate (BackgroundTasks).
 - Testing iterasi 16 (iteration_16.json): backend 10/10 (1 skip wajar) + frontend 100% PASS. Tidak ada bug fungsional. Kalibrasi to_1 → 5 soal terkalibrasi, 7 attempt di-skor theta. Catatan: `.env` backend/frontend dibuat ulang sesi ini (hilang dari repo karena gitignore).
 
+## Implemented — Iterasi 16: Pengaturan Skala Skor IRT per Try Out (2026-06)
+- **Preset skala** (`irt.SCALE_PRESETS`): `snbt` SNBT 0–1000 (μ500 σ100, default) · `tka` TKA SMA 200–700 (μ450 σ83) · `raw` SD/SMP Nilai Asli 1–100 (skor IRT & θ DISEMBUNYIKAN, hanya % benar) · `custom` (admin isi min/max/mean/sd, divalidasi). Skor = clamp(mean + θ·sd, min, max).
+- **Backend**: field `irt_scale` + `irt_scale_custom` di `tryouts` (TryoutBody). Endpoint baru `GET /api/admin/irt-scales`, `GET/PUT /api/admin/tryouts/{id}/irt-scale`. Ganti skala (via endpoint tsb atau `PUT /tryouts/{id}`) → otomatis hitung ulang theta/skor semua attempt tersubmit (`_rescore_attempts`, respons `rescored`). Attempt menyimpan `irt_scale` & `irt_scale_label`. Submit & kalibrasi memakai skala Try Out.
+- **Frontend**: komponen `IrtScaleFields.jsx` (dropdown + input kustom) dipakai di dialog Buat/Edit Try Out (ManageTryouts, badge "Skala IRT" di kartu) dan kartu `IrtScaleCard.jsx` di TryoutBuilder (badge skala aktif + tombol "Terapkan Skala"). Hasil admin: label skala + catatan bila IRT disembunyikan; hasil siswa: label skala di badge Skor IRT.
+- Testing iterasi 17 (iteration_17.json): backend 9/9 + frontend 100% PASS. Tidak ada bug. to_1 dikembalikan ke `snbt`.
+
 ## Backlog / Next (P1/P2)
+- P1 (diminta user, belum dikerjakan): **Bank Soal Global** lintas Try Out (pakai ulang soal + parameter IRT) & **Impor Parameter IRT** a/b/c hasil kalibrasi eksternal via Excel.
 - P1: Retake/multiple attempt & bank soal impor massal; timer server-side enforcement.
 - P1: Notifikasi email (Resend) untuk pengumuman & konfirmasi bidding.
 - P2: Pembayaran kursus (Stripe/Razorpay); upload file materi (object storage).
