@@ -207,7 +207,7 @@ async def notify_new_tryout(recipients: list, tryout_title: str, subject_name: s
         await notify_safe(r["email"], subject, _shell(inner))
 
 async def notify_new_material(recipients: list, class_title: str, item_label: str):
-    subject = f"Pembaruan kelas: class_title"
+    subject = f"Pembaruan kelas: {class_title}"
     for r in recipients:
         if not r.get("email"):
             continue

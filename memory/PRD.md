@@ -156,3 +156,13 @@ Bangun platform Learning Management System (LMS) berbasis Role-Based Access Cont
 
 ## Test Credentials
 Lihat `/app/memory/test_credentials.md`.
+
+## Iterasi 18: Kesiapan Deploy Mandiri (Hemat, Server Indonesia, 1.000 Serentak) (2026-06)
+- **Audit "yang kurang" & perbaikan:**
+  - Bug `emailer.py`: subjek email materi baru `"Pembaruan kelas: class_title"` (literal) → diperbaiki jadi `{class_title}`.
+  - `frontend/src/index.js`: Google Client ID yang di-hardcode kini bisa di-override via `REACT_APP_GOOGLE_CLIENT_ID` (fallback nilai lama → preview tetap jalan).
+  - File `deploy/dcloud/.env.example` hilang (ke-ignore `.gitignore` pola `.env.*`) → dibuat ulang sebagai `deploy/dcloud/compose.env.example` (tidak ke-ignore); referensi di `README_DCLOUD.md` disesuaikan.
+  - Dibuat `deploy/dcloud/backup.sh` (backup MongoDB harian, dirujuk README).
+- **Deliverable utama — `README_DEPLOY.md`:** panduan deploy untuk pemula (Bahasa Indonesia) — hosting Indonesia termurah (Biznet Gio NEO Lite 4C/8GB ±Rp269rb/bln) s/d nyaman (4C/16GB ±Rp1–1,5jt), tabel perbandingan + harga + rekomendasi tegas, tutorial step-by-step (VPS→DNS→Docker→.env→build→SSL→jalankan), optimasi 1.000 serentak (staggered start), load test k6, backup, troubleshooting. Root `README.md` diarahkan ke panduan ini.
+- Verifikasi: backend health OK (`/api/`), `emailer.py` lolos parse, frontend compile & landing load OK (screenshot). Config `deploy/dcloud/` (compose 2×backend, nginx HTTP/2+ratelimit+gzip, Dockerfile gunicorn) sudah tuned 1.000 serentak.
+- Catatan: integrasi self-host sudah mandiri (Google verif langsung ke Google; storage Cloudflare R2; email Brevo/SMTP) — tak lagi bergantung Emergent.

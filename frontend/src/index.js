@@ -15,7 +15,10 @@ const queryClient = new QueryClient({
 });
 
 
-const GOOGLE_CLIENT_ID = "261009463558-etnl0oihtrnuhb8sob3hrbmgbe0a4ves.apps.googleusercontent.com";
+// Bisa di-override saat self-host lewat REACT_APP_GOOGLE_CLIENT_ID (saat build frontend).
+const GOOGLE_CLIENT_ID =
+  process.env.REACT_APP_GOOGLE_CLIENT_ID ||
+  "261009463558-etnl0oihtrnuhb8sob3hrbmgbe0a4ves.apps.googleusercontent.com";
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(

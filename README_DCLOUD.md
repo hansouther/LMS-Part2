@@ -10,7 +10,7 @@ Semua berkas konfigurasi siap pakai ada di folder **`deploy/dcloud/`**:
 | `backend/Dockerfile` | Image backend (Gunicorn + Uvicorn worker) |
 | `deploy/dcloud/docker-compose.yml` | MongoDB + 2× backend + Nginx + Certbot (SSL otomatis) |
 | `deploy/dcloud/nginx.conf` + `proxy_params_lms` | Reverse proxy, HTTPS, gzip, rate-limit, load-balancing |
-| `deploy/dcloud/.env.example` | Variabel compose (password Mongo, jumlah worker) |
+| `deploy/dcloud/compose.env.example` | Variabel compose (password Mongo, jumlah worker) |
 | `deploy/dcloud/backend.env.example` | Contoh `backend/.env` produksi (termasuk Midtrans) |
 | `deploy/dcloud/loadtest_k6.js` | Skrip load test 1.000 peserta serentak |
 
@@ -108,7 +108,7 @@ cp deploy/dcloud/backend.env.example backend/.env
 nano backend/.env          # isi ADMIN_*, JWT_SECRET, CORS_ORIGINS, MIDTRANS_* (lihat §7)
 
 # 3) Konfigurasi compose (password MongoDB & jumlah worker)
-cp deploy/dcloud/.env.example deploy/dcloud/.env
+cp deploy/dcloud/compose.env.example deploy/dcloud/.env
 nano deploy/dcloud/.env
 
 # 4) Ganti domain di Nginx
