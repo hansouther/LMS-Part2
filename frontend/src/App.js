@@ -38,6 +38,8 @@ import ManagePartnerships from "@/pages/admin/ManagePartnerships";
 import ManageUsers from "@/pages/admin/ManageUsers";
 import CourseContent from "@/pages/admin/CourseContent";
 import AdminAnalysis from "@/pages/admin/Analysis";
+import ManagePayments from "@/pages/admin/ManagePayments";
+import StudentPayments from "@/pages/student/StudentPayments";
 
 import TutorDashboard from "@/pages/tutor/TutorDashboard";
 import JobBidding from "@/pages/tutor/JobBidding";
@@ -93,6 +95,7 @@ function AppRoutes() {
           <Route path="/student/tryouts" element={<TryoutList />} />
           <Route path="/student/results/:attemptId" element={<TryoutResult />} />
           <Route path="/student/schedule" element={<StudentSchedule />} />
+          <Route path="/student/payments" element={<StudentPayments />} />
         </Route>
       </Route>
 
@@ -113,6 +116,7 @@ function AppRoutes() {
           <Route path="/admin/partnerships" element={<ManagePartnerships />} />
           <Route path="/admin/users" element={<ManageUsers />} />
           <Route path="/admin/analysis" element={<AdminAnalysis />} />
+          <Route path="/admin/payments" element={<ManagePayments />} />
         </Route>
       </Route>
 

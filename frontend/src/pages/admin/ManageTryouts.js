@@ -13,9 +13,10 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import IrtScaleFields, { EMPTY_CUSTOM, toCustomPayload, SCALE_PRESETS } from "@/components/common/IrtScaleFields";
+import { formatRupiah } from "@/lib/format";
 import { toast } from "sonner";
 
-const EMPTY = { title: "", description: "", subject: "", duration_minutes: 60, published: false, irt_scale: "snbt", irt_scale_custom: EMPTY_CUSTOM };
+const EMPTY = { title: "", description: "", subject: "", duration_minutes: 60, published: false, irt_scale: "snbt", irt_scale_custom: EMPTY_CUSTOM, price: 0 };
 const scaleLabel = (t) => (SCALE_PRESETS.find((p) => p.key === (t.irt_scale || "snbt")) || SCALE_PRESETS[0]).label;
 
 export default function ManageTryouts() {
@@ -27,10 +28,10 @@ export default function ManageTryouts() {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e?.target ? e.target.value : e }));
 
   const openNew = () => { setForm(EMPTY); setEditId(null); setOpen(true); };
-  const openEdit = (t) => { setForm({ title: t.title, description: t.description || "", subject: t.subject, duration_minutes: t.duration_minutes, published: t.published, irt_scale: t.irt_scale || "snbt", irt_scale_custom: t.irt_scale_custom || EMPTY_CUSTOM }); setEditId(t.id); setOpen(true); };
+  const openEdit = (t) => { setForm({ title: t.title, description: t.description || "", subject: t.subject, duration_minutes: t.duration_minutes, published: t.published, irt_scale: t.irt_scale || "snbt", irt_scale_custom: t.irt_scale_custom || EMPTY_CUSTOM, price: t.price || 0 }); setEditId(t.id); setOpen(true); };
 
   const save = async () => {
-    const payload = { ...form, duration_minutes: parseInt(form.duration_minutes || 60, 10), irt_scale_custom: form.irt_scale === "custom" ? toCustomPayload(form.irt_scale_custom) : null };
+    const payload = { ...form, duration_minutes: parseInt(form.duration_minutes || 60, 10), price: Math.max(0, parseInt(form.price || 0, 10) || 0), irt_scale_custom: form.irt_scale === "custom" ? toCustomPayload(form.irt_scale_custom) : null };
     try {
       if (editId) {
         const { data: res } = await api.put(`/admin/tryouts/${editId}`, payload);
@@ -61,6 +62,7 @@ export default function ManageTryouts() {
                 <span className="flex items-center gap-1"><HelpCircle className="h-3.5 w-3.5" /> {t.question_count} soal</span>
                 <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {t.attempt_count} pengerjaan</span>
                 <span>{t.duration_minutes} menit</span>
+                <span className={`font-semibold ${t.price > 0 ? "text-[#C9A227]" : "text-[#10B981]"}`} data-testid={`tryout-price-badge-${t.id}`}>{t.price > 0 ? formatRupiah(t.price) : "Gratis"}</span>
               </div>
               <div className="mt-2"><span className="inline-flex items-center rounded-full border border-[#0E7490]/30 bg-[#E6F5F8] px-2.5 py-0.5 text-[11px] font-semibold text-[#0E7490]" data-testid={`tryout-scale-${t.id}`}>Skala IRT: {scaleLabel(t)}</span></div>
               <div className="mt-4 flex flex-wrap gap-2">
@@ -83,6 +85,11 @@ export default function ManageTryouts() {
             <div className="grid grid-cols-2 gap-4">
               <div><Label>Mata Pelajaran</Label><Input value={form.subject} onChange={set("subject")} className="mt-1.5" data-testid="tryout-subject" /></div>
               <div><Label>Durasi (menit)</Label><Input type="number" value={form.duration_minutes} onChange={set("duration_minutes")} className="mt-1.5" data-testid="tryout-duration" /></div>
+            </div>
+            <div>
+              <Label>Harga (Rp) — 0 = gratis</Label>
+              <Input type="number" min="0" value={form.price} onChange={set("price")} className="mt-1.5" data-testid="tryout-price" />
+              <p className="mt-1 text-xs text-[#94A3B8]">Try Out berbayar dibuka setelah siswa membayar via Midtrans (VA, QRIS, GoPay, kartu).</p>
             </div>
             <IrtScaleFields value={form.irt_scale} custom={form.irt_scale_custom} onChange={(v) => setForm((f) => ({ ...f, irt_scale: v }))} onCustomChange={(c) => setForm((f) => ({ ...f, irt_scale_custom: c }))} testIdPrefix="tryout-irt-scale" />
             <div className="flex items-center justify-between rounded-lg border border-[#E2E8F0] p-3">

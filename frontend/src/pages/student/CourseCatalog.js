@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, CheckCircle2, Loader2, PlayCircle } from "lucide-react";
+import { BookOpen, CheckCircle2, Loader2, PlayCircle, CreditCard } from "lucide-react";
 import useFetch from "@/hooks/useFetch";
 import api, { apiError } from "@/lib/api";
 import PageHeader from "@/components/common/PageHeader";
 import { Loading, Empty } from "@/components/common/States";
 import { Button } from "@/components/ui/button";
 import { formatRupiah } from "@/lib/format";
+import { payItem } from "@/lib/midtrans";
 import { toast } from "sonner";
 
 export default function CourseCatalog() {
@@ -14,10 +15,14 @@ export default function CourseCatalog() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(null);
 
-  const enroll = async (id) => {
-    setBusy(id);
+  const enroll = async (c) => {
+    setBusy(c.id);
     try {
-      await api.post(`/student/courses/${id}/enroll`);
+      if ((c.price || 0) > 0) {
+        await payItem("course", c.id, { onPaid: refetch });
+        return;
+      }
+      await api.post(`/student/courses/${c.id}/enroll`);
       toast.success("Berhasil mendaftar kursus!");
       refetch();
     } catch (e) {
@@ -50,8 +55,8 @@ export default function CourseCatalog() {
                   {c.enrolled ? (
                     <Button onClick={() => navigate(`/student/courses/${c.id}/learn`)} size="sm" className="rounded-full bg-[#10B981] hover:bg-[#0ea371]" data-testid={`open-course-${c.id}`}><PlayCircle className="h-4 w-4" /> Buka Kelas</Button>
                   ) : (
-                    <Button onClick={() => enroll(c.id)} disabled={busy === c.id} className="rounded-full bg-[#0E7490] hover:bg-[#0B5C74]" size="sm" data-testid={`enroll-${c.id}`}>
-                      {busy === c.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Daftar"}
+                    <Button onClick={() => enroll(c)} disabled={busy === c.id} className="rounded-full bg-[#0E7490] hover:bg-[#0B5C74]" size="sm" data-testid={`enroll-${c.id}`}>
+                      {busy === c.id ? <Loader2 className="h-4 w-4 animate-spin" /> : (c.price || 0) > 0 ? <><CreditCard className="h-4 w-4" /> Beli & Daftar</> : "Daftar"}
                     </Button>
                   )}
                 </div>

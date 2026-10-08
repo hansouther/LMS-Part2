@@ -3,7 +3,7 @@ import { NavLink, Link, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Newspaper, CalendarDays, BookOpen, CalendarClock, FileText,
   Radio, Handshake, Users, GraduationCap, LogOut, Menu, X, ClipboardList,
-  Gavel, CalendarCheck, School, BarChart3, MonitorPlay, Download, Library, Bell, UserCog, ClipboardCheck, Target, FileBarChart2,
+  Gavel, CalendarCheck, School, BarChart3, MonitorPlay, Download, Library, Bell, UserCog, ClipboardCheck, Target, FileBarChart2, Wallet,
 } from "lucide-react";
 import { useAuth, roleLabel } from "@/context/AuthContext";
 import api from "@/lib/api";
@@ -21,6 +21,7 @@ const NAV = {
     { to: "/admin/classes", label: "Kelola Kelas", icon: Library },
     { to: "/admin/tryouts", label: "Bank Soal & Try Out", icon: FileText },
     { to: "/admin/analysis", label: "Analisis Nilai", icon: FileBarChart2 },
+    { to: "/admin/payments", label: "Pembayaran", icon: Wallet },
     { to: "/admin/broadcasts", label: "Broadcast Proktor", icon: Radio },
     { to: "/admin/partnerships", label: "Kemitraan", icon: Handshake },
     { to: "/admin/users", label: "Pengguna & Sekolah", icon: Users },
@@ -31,6 +32,7 @@ const NAV = {
     { to: "/student/tryouts", label: "CBT / Try Out", icon: ClipboardList },
     { to: "/student/courses", label: "Katalog Kursus", icon: BookOpen },
     { to: "/student/schedule", label: "Jadwal Saya", icon: CalendarCheck },
+    { to: "/student/payments", label: "Riwayat Pembayaran", icon: Wallet },
   ],
   tutor: [
     { to: "/tutor", label: "Ringkasan", icon: LayoutDashboard, end: true },

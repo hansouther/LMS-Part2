@@ -88,6 +88,7 @@ class TryoutBody(BaseModel):
     kind: str = "standalone"
     irt_scale: str = irt.DEFAULT_SCALE  # snbt | tka | raw | custom
     irt_scale_custom: Optional[dict] = None  # {min, max, mean, sd} bila custom
+    price: int = 0  # harga Try Out (Rupiah); 0 = gratis
 
 
 class IrtScaleBody(BaseModel):

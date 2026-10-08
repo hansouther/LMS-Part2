@@ -1,0 +1,84 @@
+# Deploy backend Binara LMS di DCloud (VPS Ubuntu) — target 1.000 peserta Try Out serentak
+# Jalankan: docker compose -f deploy/dcloud/docker-compose.yml up -d --build
+#
+# Komponen: nginx (TLS + reverse proxy) -> 2x backend FastAPI (gunicorn/uvicorn) -> MongoDB 7
+# Tambah instance backend dengan: docker compose up -d --scale backend=3
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: lms-mongo
+    restart: unless-stopped
+    command: ["mongod", "--wiredTigerCacheSizeGB", "2", "--bind_ip_all"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [lms]
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    image: binara-lms-backend:latest
+    restart: unless-stopped
+    env_file: ../../backend/.env
+    environment:
+      MONGO_URL: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/?authSource=admin
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-5}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1500M
+    volumes:
+      - backend_uploads:/app/uploads
+    expose: ["8001"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/api/"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    networks: [lms]
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: lms-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./proxy_params_lms:/etc/nginx/proxy_params_lms:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ../../frontend/build:/var/www/frontend:ro
+    depends_on: [backend]
+    networks: [lms]
+
+  certbot:
+    image: certbot/certbot
+    container_name: lms-certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done;'"
+    networks: [lms]
+
+volumes:
+  mongo_data:
+  backend_uploads:
+
+networks:
+  lms:
+    driver: bridge

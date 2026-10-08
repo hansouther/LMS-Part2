@@ -186,6 +186,8 @@ async def enroll(course_id: str, user: dict = Depends(student_only)):
     exists = await db.enrollments.find_one({"course_id": course_id, "student_id": user["id"]})
     if exists:
         raise HTTPException(status_code=400, detail="Anda sudah terdaftar di kursus ini")
+    if int(course.get("price") or 0) > 0:
+        raise HTTPException(status_code=402, detail="Kursus ini berbayar. Selesaikan pembayaran untuk mendaftar.")
     await db.enrollments.insert_one({
         "id": new_id(),
         "course_id": course_id,
@@ -287,6 +289,7 @@ async def tryouts(user: dict = Depends(student_only)):
     items = await db.tryouts.find({"published": True, "kind": {"$ne": "exercise"}}, {"_id": 0}).sort("start_at", -1).to_list(100)
     my_attempts = await db.attempts.find({"student_id": user["id"]}, {"_id": 0, "per_question": 0}).to_list(200)
     amap = {a["tryout_id"]: a for a in my_attempts}
+    access = {r["tryout_id"] for r in await db.tryout_access.find({"student_id": user["id"]}, {"_id": 0, "tryout_id": 1}).to_list(500)}
     tids = [t["id"] for t in items]
     qc_map = {}
     if tids:
@@ -301,6 +304,8 @@ async def tryouts(user: dict = Depends(student_only)):
         t["attempt_status"] = att["status"] if att else None
         t["attempt_id"] = att["id"] if att else None
         t["my_percentage"] = att.get("percentage") if att and att["status"] == "submitted" else None
+        t["price"] = int(t.get("price") or 0)
+        t["has_access"] = t["price"] <= 0 or t["id"] in access or att is not None
     return items
 
 
@@ -309,6 +314,11 @@ async def tryout_detail(tryout_id: str, user: dict = Depends(student_only)):
     t = await db.tryouts.find_one({"id": tryout_id, "published": True}, {"_id": 0})
     if not t:
         raise HTTPException(status_code=404, detail="Try Out tidak ditemukan")
+    if int(t.get("price") or 0) > 0 and t.get("kind") != "exercise":
+        has_attempt = await db.attempts.find_one({"tryout_id": tryout_id, "student_id": user["id"]})
+        has_access = await db.tryout_access.find_one({"tryout_id": tryout_id, "student_id": user["id"]})
+        if not has_attempt and not has_access:
+            raise HTTPException(status_code=402, detail="Try Out ini berbayar. Selesaikan pembayaran untuk mengerjakan.")
     questions = await db.questions.find({"tryout_id": tryout_id}, {"_id": 0}).sort("order", 1).to_list(200)
     if t.get("kind") == "exercise":
         random.shuffle(questions)
@@ -336,6 +346,9 @@ async def start_attempt(tryout_id: str, user: dict = Depends(student_only)):
         )
         if submitted:
             raise HTTPException(status_code=400, detail="Anda sudah menyelesaikan Try Out ini")
+        if int(t.get("price") or 0) > 0 and not await db.tryout_access.find_one(
+                {"tryout_id": tryout_id, "student_id": user["id"]}):
+            raise HTTPException(status_code=402, detail="Try Out ini berbayar. Selesaikan pembayaran untuk mengerjakan.")
     attempt = {
         "id": new_id(),
         "tryout_id": tryout_id,

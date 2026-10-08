@@ -12,7 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from database import db, client
 from seed import seed, seed_content, migrate_analysis
-import routes_auth, routes_public, routes_admin, routes_student, routes_tutor, routes_proctor, routes_files, routes_classes
+import routes_auth, routes_public, routes_admin, routes_student, routes_tutor, routes_proctor, routes_files, routes_classes, routes_payments
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ app.include_router(routes_tutor.router)
 app.include_router(routes_proctor.router)
 app.include_router(routes_files.router)
 app.include_router(routes_classes.router)
+app.include_router(routes_payments.router)
 
 @app.get("/api/")
 async def root():
@@ -65,6 +66,9 @@ async def startup():
     await db.favorites.create_index([("tutor_id", 1), ("student_id", 1), ("course_id", 1)], unique=True)
     await db.lessons.create_index("course_id")
     await db.lesson_progress.create_index([("student_id", 1), ("lesson_id", 1)], unique=True)
+    await db.payments.create_index("order_id", unique=True)
+    await db.payments.create_index([("student_id", 1), ("item_type", 1), ("item_id", 1)])
+    await db.tryout_access.create_index([("student_id", 1), ("tryout_id", 1)], unique=True)
     await seed(os.environ["ADMIN_EMAIL"], os.environ["ADMIN_PASSWORD"])
     await seed_content()
     await migrate_analysis()
