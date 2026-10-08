@@ -1,0 +1,35 @@
+{
+  "summary": "Verified Iter16 IRT (3PL) additive features end-to-end. Backend pytest: 10 passed, 1 skipped (student submit skipped because all seed students already consumed to_1/to_2 attempts; theta/irt_scaled on submit was indirectly verified via admin results table showing theta for all 7 existing attempts after calibration). Frontend smoke on /admin/tryouts/{to_3,to_1}/builder and /admin/tryouts/to_1/results confirms every requested data-testid renders and functions: irt-blueprint-panel + irt-composition + irt-level-{mudah,sedang,sulit} + irt-tif-chart + irt-recommendations + calibrate-irt-btn, download-template-xlsx (next to existing download-template CSV), question-difficulty select on add/edit modal, question-difficulty-<id> badge after save, question-irt-<id> badge on 5 items after clicking Kalibrasi IRT on to_1 (POST /api/admin/tryouts/to_1/calibrate => calibrated=5, attempts_scored=7), and Skor IRT column (result-irt-<row>) showing scaled score + theta on the results page. CSV template contains new 'tingkat' column, XLSX template downloads a valid openpyxl workbook with Petunjuk sheet. Bulk-difficulty endpoint updates selected questions; bulk-competency regression still works. Blueprint endpoint returns composition/target_counts/gaps/tif/tif_peak/recommendations/calibrated_count. No existing feature regressed in builder (add/edit/delete, bulk competency, CSV template, CSV/Excel import still work).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin/tryouts/{id}/builder (IrtBlueprintPanel)", "issues": [
+        "Recharts ResponsiveContainer logs 'width(-1) height(-1)' warnings on first paint (chart still renders fine after layout). Consider giving the chart wrapper an explicit minHeight or using <ResponsiveContainer aspect=...> to silence."
+      ]},
+      {"screen": "Question modal (shadcn Dialog)", "issues": [
+        "Console warning: Missing `Description` or `aria-describedby` for DialogContent. Add DialogDescription or aria-describedby for accessibility."
+      ]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter16_irt.py",
+    "/app/test_reports/pytest/iter16.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes_admin.py is now ~950 lines; starting to be large — consider splitting into routes_admin_tryouts.py / routes_admin_questions.py / routes_admin_import.py for maintainability.",
+    "update_question route is PUT /api/admin/questions/{id} (not /api/questions/{id}); matches current frontend usage — just a naming inconsistency vs other resource routes.",
+    "irt.py uses `comp.get(effective_label(q), 0) + 1` with effective_label called twice per question in build_blueprint — negligible but could cache in a local.",
+    "ResponsiveContainer in IrtBlueprintPanel.jsx renders inside a conditional/collapsible area which momentarily yields width/height = -1 and spams recharts warnings — fix by wrapping in a sized div (e.g., `className=\"h-[180px] w-full min-w-0\"`)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter16_irt.py"],
+  "success_rate": {"backend": "100% (10/10 executed; 1 skipped due to seeded attempts)", "frontend": "100%"},
+  "test_credentials": "admin@lms.id/Admin@12345, siswa@lms.id/Siswa@12345 (all seed students have consumed to_1/to_2 attempts).",
+  "seed_data_creation": "None — all TEST_ prefixed questions created in tests are cleaned up at end of each test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "IRT (3PL) iteration verified. New endpoints: GET /api/admin/tryouts/{id}/irt-blueprint, POST /api/admin/tryouts/{id}/calibrate, POST /api/admin/tryouts/{id}/questions/bulk-difficulty, GET /api/admin/questions/template.xlsx. QuestionBody now accepts difficulty_label (mudah/sedang/sulit). Student submit payload now includes theta/irt_scaled. Admin update route for questions is PUT /api/admin/questions/{id}. to_1 and to_2 have 7 submitted attempts (5 Q each) and after calibration all 5 questions get irt_a/b/c populated and attempts get theta/irt_scaled. to_3 is empty-attempts tryout — safe sandbox for creating/importing questions.",
+  "rca of the issue": "N/A — no bugs found."
+}

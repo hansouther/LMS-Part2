@@ -132,6 +132,14 @@ Bangun platform Learning Management System (LMS) berbasis Role-Based Access Cont
   - **Laporan Analisis Kelemahan (Admin & Proktor)**: seksi "Rekomendasi Latihan per Siswa" per siswa (di `WeaknessReportView.jsx`, dari `recap[].recommendations`).
 - Testing iterasi 14 (iteration_14.json): frontend 100% PASS (sertifikat add/remove + validasi 2MB, rekomendasi siswa & staff). Backend curl-verified. Data tentor demo dipulihkan (3 kualifikasi, cv null, certificates []); 10 akun seed utuh.
 
+## Implemented — Iterasi 15: Penilaian IRT (3PL), Rekomendasi Komposisi Soal & Template Excel (2026-06)
+- **Model IRT 3PL** (`backend/irt.py`): parameter butir a (daya pembeda), b (kesulitan), c (tebakan). Kalibrasi otomatis dari data jawaban peserta (p-value→b via normal, point-biserial→a, c dari tipe/jumlah opsi; min 5 responden/soal). Estimasi kemampuan peserta theta via EAP (prior N(0,1)) + skor skala IRT (~100-900, rata-rata 500).
+- **Pembuatan soal (TryoutBuilder)**: field baru "Tingkat Kesulitan (IRT)" Mudah/Sedang/Sulit (label manual) di form + badge tingkat & badge parameter IRT (a/b/c) pada kartu soal setelah kalibrasi. Tagging massal tingkat kesulitan (`POST /api/admin/tryouts/{id}/questions/bulk-difficulty`) berdampingan dengan tagging kompetensi yang sudah ada. **Semua fitur lama dipertahankan (hanya penambahan).**
+- **Rekomendasi komposisi IRT** (`IrtBlueprintPanel.jsx` + `GET /api/admin/tryouts/{id}/irt-blueprint`): panel menampilkan komposisi Mudah/Sedang/Sulit vs target 30/40/30, gap "kurang/lebih N soal", grafik Test Information Function (recharts) + titik puncak θ, saran tekstual untuk staff admin, dan status kalibrasi. Tombol "Kalibrasi IRT" (`POST /api/admin/tryouts/{id}/calibrate`) mengkalibrasi butir + menghitung ulang theta semua attempt.
+- **Pembuatan soal skala besar**: template **Excel (.xlsx)** baru (`GET /api/admin/questions/template.xlsx`, berisi sheet Soal + Petunjuk) di samping template CSV; impor CSV/Excel kini mendukung kolom `tingkat` (mudah/sedang/sulit).
+- **Skor IRT ditampilkan**: hasil siswa (`TryoutResult`) menampilkan Skor IRT + θ; tabel Hasil & Peringkat admin (`TryoutResults`) menambah kolom "Skor IRT". Submit attempt kini mengembalikan theta/irt_scaled + auto-recalibrate (BackgroundTasks).
+- Testing iterasi 16 (iteration_16.json): backend 10/10 (1 skip wajar) + frontend 100% PASS. Tidak ada bug fungsional. Kalibrasi to_1 → 5 soal terkalibrasi, 7 attempt di-skor theta. Catatan: `.env` backend/frontend dibuat ulang sesi ini (hilang dari repo karena gitignore).
+
 ## Backlog / Next (P1/P2)
 - P1: Retake/multiple attempt & bank soal impor massal; timer server-side enforcement.
 - P1: Notifikasi email (Resend) untuk pengumuman & konfirmasi bidding.

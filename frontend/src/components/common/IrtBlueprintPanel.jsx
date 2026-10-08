@@ -78,7 +78,7 @@ export default function IrtBlueprintPanel({ tryoutId, version = 0, onCalibrate, 
         {/* Test Information Function */}
         <div>
           <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-[#0A1128]"><Activity className="h-4 w-4 text-[#0E7490]" /> Test Information Function</div>
-          <div className="h-[180px] w-full" data-testid="irt-tif-chart">
+          <div className="h-[180px] w-full min-w-0" data-testid="irt-tif-chart">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data.tif || []} margin={{ top: 5, right: 10, left: -18, bottom: 0 }}>
                 <defs>
