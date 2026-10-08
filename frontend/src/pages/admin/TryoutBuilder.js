@@ -1,10 +1,11 @@
 import { useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Plus, Trash2, ArrowLeft, HelpCircle, CheckCircle2, X, Upload, FileDown, Tag } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, HelpCircle, CheckCircle2, X, Upload, FileDown, Tag, FileSpreadsheet, Gauge } from "lucide-react";
 import useFetch from "@/hooks/useFetch";
 import api, { apiError } from "@/lib/api";
 import { Loading, Empty } from "@/components/common/States";
 import ConfirmButton from "@/components/common/ConfirmButton";
+import IrtBlueprintPanel from "@/components/common/IrtBlueprintPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,8 +29,16 @@ const COMPETENCIES = [
 ];
 const COMP_LABEL = { numerasi: "Numerasi", literasi: "Literasi", umum: "Umum" };
 const COMP_COLOR = { numerasi: "#0E7490", literasi: "#C9A227", umum: "#94A3B8" };
+const DIFFICULTIES = [
+  { v: "mudah", l: "Mudah" },
+  { v: "sedang", l: "Sedang" },
+  { v: "sulit", l: "Sulit" },
+];
+const DIFF_LABEL = { mudah: "Mudah", sedang: "Sedang", sulit: "Sulit" };
+const DIFF_COLOR = { mudah: "#10B981", sedang: "#C9A227", sulit: "#EF4444" };
+const effDiff = (q) => (q.irt_calibrated && q.irt_b != null) ? (q.irt_b < -0.5 ? "mudah" : q.irt_b > 0.5 ? "sulit" : "sedang") : (q.difficulty_label || "sedang");
 const newOpts = () => [{ id: "o1", text: "" }, { id: "o2", text: "" }, { id: "o3", text: "" }, { id: "o4", text: "" }];
-const EMPTY = { type: "single", text: "", points: 20, options: newOpts(), correct: [], essay: "", competency: "umum" };
+const EMPTY = { type: "single", text: "", points: 20, options: newOpts(), correct: [], essay: "", competency: "umum", difficulty: "sedang" };
 
 export default function TryoutBuilder() {
   const { id } = useParams();
@@ -41,6 +50,10 @@ export default function TryoutBuilder() {
   const fileRef = useRef();
   const [selected, setSelected] = useState(new Set());
   const [bulkComp, setBulkComp] = useState("numerasi");
+  const [bulkDiff, setBulkDiff] = useState("sedang");
+  const [blueprintVersion, setBlueprintVersion] = useState(0);
+  const [calibrating, setCalibrating] = useState(false);
+  const bumpBlueprint = () => setBlueprintVersion((v) => v + 1);
 
   const toggleSelect = (qid) => setSelected((s) => { const n = new Set(s); n.has(qid) ? n.delete(qid) : n.add(qid); return n; });
   const allIds = (questions || []).map((q) => q.id);
@@ -54,6 +67,25 @@ export default function TryoutBuilder() {
       refetch();
     } catch (e) { toast.error(apiError(e)); }
   };
+  const applyBulkDiff = async () => {
+    try {
+      const { data } = await api.post(`/admin/tryouts/${id}/questions/bulk-difficulty`, { question_ids: [...selected], difficulty_label: bulkDiff });
+      toast.success(`${data.updated} soal ditandai tingkat ${DIFF_LABEL[bulkDiff]}`);
+      setSelected(new Set());
+      refetch(); bumpBlueprint();
+    } catch (e) { toast.error(apiError(e)); }
+  };
+
+  const calibrateIrt = async () => {
+    setCalibrating(true);
+    try {
+      const { data } = await api.post(`/admin/tryouts/${id}/calibrate`);
+      if (data.calibrated > 0) toast.success(`Kalibrasi IRT selesai: ${data.calibrated} soal terkalibrasi dari ${data.attempts_scored} hasil peserta`);
+      else toast.info(`Belum cukup data jawaban untuk kalibrasi (butuh ≥ ${data.min_responses_required} responden per soal)`);
+      refetch(); bumpBlueprint();
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setCalibrating(false); }
+  };
 
   const downloadTemplate = async () => {
     try {
@@ -63,6 +95,15 @@ export default function TryoutBuilder() {
       a.href = url; a.download = "template_soal.csv"; a.click();
       URL.revokeObjectURL(url);
     } catch { toast.error("Gagal mengunduh template"); }
+  };
+  const downloadTemplateXlsx = async () => {
+    try {
+      const res = await api.get("/admin/questions/template.xlsx", { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = "template_soal.xlsx"; a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast.error("Gagal mengunduh template Excel"); }
   };
 
   const onImport = async (e) => {
@@ -74,7 +115,7 @@ export default function TryoutBuilder() {
       const { data } = await api.post(`/admin/tryouts/${id}/questions/import`, fd);
       toast.success(`${data.imported} soal berhasil diimpor`);
       if (data.errors?.length) toast.error(`${data.errors.length} baris gagal. ${data.errors[0]}`);
-      refetch();
+      refetch(); bumpBlueprint();
     } catch (err) { toast.error(apiError(err)); }
     e.target.value = "";
   };
@@ -87,6 +128,7 @@ export default function TryoutBuilder() {
       correct: q.type === "essay" ? [] : q.correct_answers,
       essay: q.type === "essay" ? (q.correct_answers || []).join(", ") : "",
       competency: q.competency || "umum",
+      difficulty: q.difficulty_label || "sedang",
     });
     setEditId(q.id); setOpen(true);
   };
@@ -111,14 +153,14 @@ export default function TryoutBuilder() {
       correct_answers = form.essay.split(",").map((s) => s.trim()).filter(Boolean);
       if (!correct_answers.length) return toast.error("Isi kunci jawaban esai");
     }
-    const payload = { type: form.type, text: form.text, options, correct_answers, points: parseInt(form.points || 1, 10), order: 0, competency: form.competency || "umum" };
+    const payload = { type: form.type, text: form.text, options, correct_answers, points: parseInt(form.points || 1, 10), order: 0, competency: form.competency || "umum", difficulty_label: form.difficulty || "sedang" };
     try {
       if (editId) await api.put(`/admin/questions/${editId}`, payload);
       else await api.post(`/admin/tryouts/${id}/questions`, payload);
-      toast.success("Soal tersimpan"); setOpen(false); refetch();
+      toast.success("Soal tersimpan"); setOpen(false); refetch(); bumpBlueprint();
     } catch (e) { toast.error(apiError(e)); }
   };
-  const del = async (qid) => { try { await api.delete(`/admin/questions/${qid}`); toast.success("Soal dihapus"); refetch(); } catch (e) { toast.error(apiError(e)); } };
+  const del = async (qid) => { try { await api.delete(`/admin/questions/${qid}`); toast.success("Soal dihapus"); refetch(); bumpBlueprint(); } catch (e) { toast.error(apiError(e)); } };
 
   const typeLabel = (t) => TYPES.find((x) => x.v === t)?.l || t;
 
@@ -131,12 +173,18 @@ export default function TryoutBuilder() {
           <p className="text-sm text-[#475569] mt-1">{questions?.length || 0} soal · Total {(questions || []).reduce((a, q) => a + (q.points || 0), 0)} poin</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" onClick={downloadTemplate} className="rounded-full hover:bg-[#E6F5F8] hover:text-[#0E7490]" data-testid="download-template"><FileDown className="h-4 w-4" /> Template</Button>
+          <Button variant="outline" onClick={downloadTemplate} className="rounded-full hover:bg-[#E6F5F8] hover:text-[#0E7490]" data-testid="download-template"><FileDown className="h-4 w-4" /> Template CSV</Button>
+          <Button variant="outline" onClick={downloadTemplateXlsx} className="rounded-full hover:bg-[#E6F5F8] hover:text-[#0E7490]" data-testid="download-template-xlsx"><FileSpreadsheet className="h-4 w-4" /> Template Excel</Button>
           <Button variant="outline" onClick={() => fileRef.current?.click()} className="rounded-full hover:bg-[#E6F5F8] hover:text-[#0E7490]" data-testid="import-questions"><Upload className="h-4 w-4" /> Impor CSV/Excel</Button>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={onImport} data-testid="import-file" />
           <Button onClick={openNew} className="rounded-full bg-[#0E7490] hover:bg-[#0B5C74]" data-testid="add-question-btn"><Plus className="h-4 w-4" /> Tambah Soal</Button>
         </div>
       </div>
+
+      <div className="mb-6">
+        <IrtBlueprintPanel tryoutId={id} version={blueprintVersion} onCalibrate={calibrateIrt} calibrating={calibrating} />
+      </div>
+
 
       {loading ? <Loading /> : !questions?.length ? (
         <Empty icon={HelpCircle} title="Belum ada soal" desc="Tambahkan soal pertama untuk Try Out ini." action={<Button onClick={openNew} className="rounded-full bg-[#0E7490]"><Plus className="h-4 w-4" /> Tambah Soal</Button>} />
@@ -149,16 +197,22 @@ export default function TryoutBuilder() {
             {selected.size > 0 ? (
               <div className="flex flex-wrap items-center gap-2 ml-auto">
                 <span className="text-sm font-semibold text-[#0A1128]" data-testid="bulk-count">{selected.size} soal dipilih</span>
-                <span className="text-xs text-[#94A3B8]">tandai sebagai</span>
+                <span className="text-xs text-[#94A3B8]">kompetensi</span>
                 <Select value={bulkComp} onValueChange={setBulkComp}>
-                  <SelectTrigger className="h-9 w-36" data-testid="bulk-competency-select"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-32" data-testid="bulk-competency-select"><SelectValue /></SelectTrigger>
                   <SelectContent>{COMPETENCIES.map((c) => <SelectItem key={c.v} value={c.v}>{c.l}</SelectItem>)}</SelectContent>
                 </Select>
                 <Button size="sm" onClick={applyBulk} className="rounded-full bg-[#0E7490] hover:bg-[#0B5C74]" data-testid="apply-bulk-competency"><Tag className="h-4 w-4" /> Terapkan</Button>
+                <span className="text-xs text-[#94A3B8] ml-1">tingkat</span>
+                <Select value={bulkDiff} onValueChange={setBulkDiff}>
+                  <SelectTrigger className="h-9 w-32" data-testid="bulk-difficulty-select"><SelectValue /></SelectTrigger>
+                  <SelectContent>{DIFFICULTIES.map((c) => <SelectItem key={c.v} value={c.v}>{c.l}</SelectItem>)}</SelectContent>
+                </Select>
+                <Button size="sm" onClick={applyBulkDiff} className="rounded-full bg-[#C9A227] hover:bg-[#b08f1f] text-[#0A1128]" data-testid="apply-bulk-difficulty"><Gauge className="h-4 w-4" /> Terapkan</Button>
                 <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} className="rounded-full">Batal</Button>
               </div>
             ) : (
-              <span className="ml-auto text-xs text-[#94A3B8]">Pilih beberapa soal untuk menandai kompetensi (Numerasi/Literasi) sekaligus.</span>
+              <span className="ml-auto text-xs text-[#94A3B8]">Pilih beberapa soal untuk menandai kompetensi (Numerasi/Literasi) & tingkat kesulitan IRT (Mudah/Sedang/Sulit) sekaligus.</span>
             )}
           </div>
           {questions.map((q, i) => (
@@ -171,6 +225,10 @@ export default function TryoutBuilder() {
                     <span className="rounded-full bg-[#E6F5F8] text-[#0E7490] px-2.5 py-0.5 text-xs font-bold">#{i + 1}</span>
                     <span className="text-xs text-[#94A3B8]">{typeLabel(q.type)} · {q.points} poin</span>
                     <span className="rounded-full px-2 py-0.5 text-xs font-semibold" style={{ backgroundColor: `${COMP_COLOR[q.competency || "umum"]}1A`, color: COMP_COLOR[q.competency || "umum"] }} data-testid={`question-competency-${q.id}`}>{COMP_LABEL[q.competency || "umum"]}</span>
+                    <span className="rounded-full px-2 py-0.5 text-xs font-semibold inline-flex items-center gap-1" style={{ backgroundColor: `${DIFF_COLOR[effDiff(q)]}1A`, color: DIFF_COLOR[effDiff(q)] }} data-testid={`question-difficulty-${q.id}`}><Gauge className="h-3 w-3" />{DIFF_LABEL[effDiff(q)]}</span>
+                    {q.irt_calibrated && q.irt_b != null && (
+                      <span className="rounded-full bg-[#0A1128] text-white/90 px-2 py-0.5 text-[10px] font-mono" data-testid={`question-irt-${q.id}`} title="Parameter IRT 3PL (daya pembeda a, kesulitan b, tebakan c)">IRT a={Number(q.irt_a).toFixed(2)} b={Number(q.irt_b).toFixed(2)} c={Number(q.irt_c).toFixed(2)}</span>
+                    )}
                   </div>
                   <p className="mt-2 text-[#0A1128]">{q.text}</p>
                   <div className="mt-3 space-y-1">
@@ -211,13 +269,21 @@ export default function TryoutBuilder() {
               </div>
               <div><Label>Poin</Label><Input type="number" value={form.points} onChange={(e) => setForm((f) => ({ ...f, points: e.target.value }))} className="mt-1.5" data-testid="question-points" /></div>
             </div>
-            <div><Label>Kompetensi (AKM)</Label>
-              <Select value={form.competency} onValueChange={(v) => setForm((f) => ({ ...f, competency: v }))}>
-                <SelectTrigger className="mt-1.5" data-testid="question-competency"><SelectValue /></SelectTrigger>
-                <SelectContent>{COMPETENCIES.map((c) => <SelectItem key={c.v} value={c.v}>{c.l}</SelectItem>)}</SelectContent>
-              </Select>
-              <p className="mt-1 text-xs text-[#94A3B8]">Dipakai untuk laporan kelemahan siswa (Numerasi vs Literasi).</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label>Kompetensi (AKM)</Label>
+                <Select value={form.competency} onValueChange={(v) => setForm((f) => ({ ...f, competency: v }))}>
+                  <SelectTrigger className="mt-1.5" data-testid="question-competency"><SelectValue /></SelectTrigger>
+                  <SelectContent>{COMPETENCIES.map((c) => <SelectItem key={c.v} value={c.v}>{c.l}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div><Label>Tingkat Kesulitan (IRT)</Label>
+                <Select value={form.difficulty} onValueChange={(v) => setForm((f) => ({ ...f, difficulty: v }))}>
+                  <SelectTrigger className="mt-1.5" data-testid="question-difficulty"><SelectValue /></SelectTrigger>
+                  <SelectContent>{DIFFICULTIES.map((c) => <SelectItem key={c.v} value={c.v}>{c.l}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
             </div>
+            <p className="-mt-2 text-xs text-[#94A3B8]">Kompetensi untuk laporan Numerasi vs Literasi. Tingkat kesulitan jadi acuan komposisi IRT (parameter a/b/c dikalibrasi otomatis dari jawaban peserta).</p>
             <div><Label>Pertanyaan</Label><Textarea value={form.text} onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))} className="mt-1.5" rows={3} data-testid="question-text" /></div>
 
             {(form.type === "single" || form.type === "multiple") && (

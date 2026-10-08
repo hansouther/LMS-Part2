@@ -34,6 +34,7 @@ export default function TryoutResults() {
                 <TableHead>Siswa</TableHead>
                 <TableHead>Skor</TableHead>
                 <TableHead>Nilai</TableHead>
+                <TableHead className="hidden md:table-cell">Skor IRT</TableHead>
                 <TableHead className="hidden sm:table-cell">Waktu</TableHead>
               </TableRow>
             </TableHeader>
@@ -49,6 +50,11 @@ export default function TryoutResults() {
                   </TableCell>
                   <TableCell className="font-mono2">{a.score}/{a.max_score}</TableCell>
                   <TableCell><span className="font-mono2 font-bold" style={{ color: a.percentage >= 70 ? "#10B981" : a.percentage >= 50 ? "#C9A227" : "#EF4444" }}>{a.percentage}%</span></TableCell>
+                  <TableCell className="hidden md:table-cell" data-testid={`result-irt-${i}`}>
+                    {a.irt_scaled != null ? (
+                      <span className="font-mono2 font-semibold text-[#0E7490]">{a.irt_scaled}<span className="text-xs text-[#94A3B8]"> (θ {a.theta})</span></span>
+                    ) : <span className="text-xs text-[#94A3B8]">—</span>}
+                  </TableCell>
                   <TableCell className="hidden sm:table-cell text-xs text-[#94A3B8]">{formatDateTime(a.submitted_at)}</TableCell>
                 </TableRow>
               ))}

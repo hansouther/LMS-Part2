@@ -16,6 +16,7 @@ from emailer import notify_new_tryout, notify_bid_accepted, notify_new_material
 from storage import put_object, MIME_TYPES, APP_NAME
 import notifications
 import analysis
+import irt
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 admin_only = require_roles("admin")
@@ -95,11 +96,17 @@ class QuestionBody(BaseModel):
     points: int = 1
     order: int = 0
     competency: str = "umum"  # numerasi | literasi | umum (AKM)
+    difficulty_label: Optional[str] = None  # mudah | sedang | sulit (label manual untuk IRT)
 
 
 class BulkCompetencyBody(BaseModel):
     question_ids: List[str]
     competency: str  # numerasi | literasi | umum
+
+
+class BulkDifficultyBody(BaseModel):
+    question_ids: List[str]
+    difficulty_label: str  # mudah | sedang | sulit
 
 
 class BroadcastBody(BaseModel):
@@ -415,7 +422,13 @@ async def create_question(tryout_id: str, body: QuestionBody, user: dict = Depen
     if not await db.tryouts.find_one({"id": tryout_id}):
         raise HTTPException(status_code=404, detail="Try Out tidak ditemukan")
     count = await db.questions.count_documents({"tryout_id": tryout_id})
-    doc = {"id": new_id(), "tryout_id": tryout_id, **body.model_dump()}
+    payload = body.model_dump()
+    dl = (payload.get("difficulty_label") or "").lower()
+    payload["difficulty_label"] = dl if dl in irt.DIFFICULTY_LABELS else None
+    doc = {"id": new_id(), "tryout_id": tryout_id, **payload,
+           "irt_a": None, "irt_b": None, "irt_c": None,
+           "irt_calibrated": False, "p_value": None, "point_biserial": None,
+           "response_count": 0}
     if not doc.get("order"):
         doc["order"] = count + 1
     await db.questions.insert_one(doc)
@@ -424,7 +437,10 @@ async def create_question(tryout_id: str, body: QuestionBody, user: dict = Depen
 
 @router.put("/questions/{question_id}")
 async def update_question(question_id: str, body: QuestionBody, user: dict = Depends(admin_only)):
-    res = await db.questions.update_one({"id": question_id}, {"$set": body.model_dump()})
+    payload = body.model_dump()
+    dl = (payload.get("difficulty_label") or "").lower()
+    payload["difficulty_label"] = dl if dl in irt.DIFFICULTY_LABELS else None
+    res = await db.questions.update_one({"id": question_id}, {"$set": payload})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Soal tidak ditemukan")
     return {"ok": True}
@@ -446,6 +462,68 @@ async def bulk_competency(tryout_id: str, body: BulkCompetencyBody, user: dict =
         {"$set": {"competency": comp}},
     )
     return {"updated": res.modified_count}
+
+
+@router.post("/tryouts/{tryout_id}/questions/bulk-difficulty")
+async def bulk_difficulty(tryout_id: str, body: BulkDifficultyBody, user: dict = Depends(admin_only)):
+    lvl = (body.difficulty_label or "").lower()
+    if lvl not in irt.DIFFICULTY_LABELS:
+        raise HTTPException(status_code=400, detail="Tingkat kesulitan tidak valid")
+    if not body.question_ids:
+        raise HTTPException(status_code=400, detail="Tidak ada soal dipilih")
+    res = await db.questions.update_many(
+        {"tryout_id": tryout_id, "id": {"$in": body.question_ids}},
+        {"$set": {"difficulty_label": lvl}},
+    )
+    return {"updated": res.modified_count}
+
+
+@router.post("/tryouts/{tryout_id}/calibrate")
+async def calibrate_tryout(tryout_id: str, user: dict = Depends(admin_only)):
+    """Kalibrasi parameter IRT (3PL) tiap butir dari data jawaban peserta,
+    lalu hitung ulang skor IR/theta untuk semua attempt tersubmit."""
+    if not await db.tryouts.find_one({"id": tryout_id}):
+        raise HTTPException(status_code=404, detail="Try Out tidak ditemukan")
+    questions = await db.questions.find({"tryout_id": tryout_id}, {"_id": 0}).to_list(1000)
+    attempts = await db.attempts.find(
+        {"tryout_id": tryout_id, "status": "submitted"}, {"_id": 0}
+    ).to_list(10000)
+
+    params = irt.calibrate(questions, attempts)
+    calibrated = 0
+    for qid, p in params.items():
+        await db.questions.update_one({"id": qid}, {"$set": p})
+        if p.get("irt_calibrated"):
+            calibrated += 1
+
+    # Terapkan parameter baru ke objek soal in-memory lalu skor ulang theta tiap attempt
+    qmap = {q["id"]: q for q in questions}
+    for qid, p in params.items():
+        if qid in qmap:
+            qmap[qid].update(p)
+    rescored = 0
+    for a in attempts:
+        res = irt.score_attempt(list(qmap.values()), a.get("per_question"))
+        await db.attempts.update_one({"id": a["id"]}, {"$set": res})
+        rescored += 1
+
+    return {
+        "calibrated": calibrated,
+        "items_with_responses": len(params),
+        "total_questions": len(questions),
+        "attempts_scored": rescored,
+        "min_responses_required": 5,
+    }
+
+
+@router.get("/tryouts/{tryout_id}/irt-blueprint")
+async def irt_blueprint(tryout_id: str, user: dict = Depends(admin_only)):
+    """Rekomendasi komposisi soal (Mudah/Sedang/Sulit) + Test Information Function
+    untuk memenuhi kebutuhan penilaian IRT saat membuat Try Out."""
+    if not await db.tryouts.find_one({"id": tryout_id}):
+        raise HTTPException(status_code=404, detail="Try Out tidak ditemukan")
+    questions = await db.questions.find({"tryout_id": tryout_id}, {"_id": 0}).to_list(1000)
+    return irt.build_blueprint(questions)
 
 
 @router.get("/tryouts/{tryout_id}/results")
@@ -704,8 +782,12 @@ def _row_to_question(row: dict, order: int):
     comp = str(row.get("competency") or row.get("kompetensi") or "umum").strip().lower()
     if comp not in ("numerasi", "literasi"):
         comp = "umum"
+    dl = str(row.get("difficulty_label") or row.get("tingkat") or row.get("kesulitan") or "").strip().lower()
+    _MAP = {"mudah": "mudah", "easy": "mudah", "sedang": "sedang", "medium": "sedang",
+            "sulit": "sulit", "susah": "sulit", "hard": "sulit"}
+    dl = _MAP.get(dl)
     return {"type": t, "text": text, "options": options, "correct_answers": correct,
-            "points": points, "order": order, "competency": comp}, None
+            "points": points, "order": order, "competency": comp, "difficulty_label": dl}, None
 
 
 @router.post("/tryouts/{tryout_id}/questions/import")
@@ -742,6 +824,8 @@ async def import_questions(tryout_id: str, file: UploadFile = File(...), user: d
             continue
         q["id"] = new_id()
         q["tryout_id"] = tryout_id
+        q.update({"irt_a": None, "irt_b": None, "irt_c": None, "irt_calibrated": False,
+                  "p_value": None, "point_biserial": None, "response_count": 0})
         await db.questions.insert_one(q)
         imported += 1
     return {"imported": imported, "errors": errors}
@@ -750,14 +834,66 @@ async def import_questions(tryout_id: str, file: UploadFile = File(...), user: d
 @router.get("/questions/template")
 async def questions_template(user: dict = Depends(admin_only)):
     csv_text = (
-        "type,text,option_a,option_b,option_c,option_d,correct,points,competency\n"
-        "single,\"Berapa hasil 2+2?\",3,4,5,6,B,10,numerasi\n"
-        "multiple,\"Pilih bilangan genap\",2,3,4,5,\"A;C\",10,numerasi\n"
-        "truefalse,\"Bumi berbentuk bulat\",,,,,benar,10,literasi\n"
-        "essay,\"Ibu kota Indonesia?\",,,,,\"jakarta|dki jakarta\",10,literasi\n"
+        "type,text,option_a,option_b,option_c,option_d,correct,points,competency,tingkat\n"
+        "single,\"Berapa hasil 2+2?\",3,4,5,6,B,10,numerasi,mudah\n"
+        "multiple,\"Pilih bilangan genap\",2,3,4,5,\"A;C\",10,numerasi,sedang\n"
+        "truefalse,\"Bumi berbentuk bulat\",,,,,benar,10,literasi,mudah\n"
+        "essay,\"Ibu kota Indonesia?\",,,,,\"jakarta|dki jakarta\",10,literasi,sulit\n"
     )
     return Response(content=csv_text, media_type="text/csv",
                     headers={"Content-Disposition": "attachment; filename=template_soal.csv"})
+
+
+@router.get("/questions/template.xlsx")
+async def questions_template_xlsx(user: dict = Depends(admin_only)):
+    """Template Excel untuk pembuatan soal skala besar (banyak soal sekaligus)."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Soal"
+    headers = ["type", "text", "option_a", "option_b", "option_c", "option_d",
+               "option_e", "correct", "points", "competency", "tingkat"]
+    ws.append(headers)
+    samples = [
+        ["single", "Berapa hasil 2+2?", "3", "4", "5", "6", "", "B", 10, "numerasi", "mudah"],
+        ["multiple", "Pilih bilangan genap", "2", "3", "4", "5", "", "A;C", 10, "numerasi", "sedang"],
+        ["truefalse", "Bumi berbentuk bulat", "", "", "", "", "", "benar", 10, "literasi", "mudah"],
+        ["essay", "Ibu kota Indonesia?", "", "", "", "", "", "jakarta|dki jakarta", 10, "literasi", "sulit"],
+    ]
+    for row in samples:
+        ws.append(row)
+    for col in ws.columns:
+        width = max((len(str(c.value)) if c.value is not None else 0) for c in col) + 2
+        ws.column_dimensions[col[0].column_letter].width = min(max(width, 10), 48)
+
+    info = wb.create_sheet("Petunjuk")
+    guide = [
+        ["Petunjuk Pengisian Template Soal (Impor Massal)"],
+        [""],
+        ["Kolom", "Keterangan"],
+        ["type", "Tipe soal: single (PG), multiple (PG kompleks), truefalse, essay"],
+        ["text", "Teks pertanyaan"],
+        ["option_a..e", "Pilihan jawaban (untuk single/multiple). Kosongkan untuk truefalse/essay"],
+        ["correct", "Kunci: huruf A-E (pisah ; untuk multiple), benar/salah untuk truefalse, atau teks (pisah |) untuk essay"],
+        ["points", "Poin/bobot soal (angka)"],
+        ["competency", "numerasi | literasi | umum (untuk laporan AKM)"],
+        ["tingkat", "Tingkat kesulitan IRT: mudah | sedang | sulit"],
+        [""],
+        ["Rekomendasi komposisi IRT", "±30% Mudah, 40% Sedang, 30% Sulit"],
+        ["Catatan", "Parameter IRT (a,b,c) akan dikalibrasi otomatis dari hasil jawaban peserta."],
+    ]
+    for row in guide:
+        info.append(row)
+    info.column_dimensions["A"].width = 24
+    info.column_dimensions["B"].width = 80
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=template_soal.xlsx"},
+    )
 
 
 # ---------- Bulk Import Course Materials (ZIP) ----------

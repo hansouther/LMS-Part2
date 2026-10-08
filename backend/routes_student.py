@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from typing import Dict, List
 import random
@@ -8,6 +8,7 @@ from utils import new_id, now_iso, class_sessions
 from security import require_roles
 from grading import strip_answers, grade_attempt
 import analysis
+import irt
 
 router = APIRouter(prefix="/api/student", tags=["student"])
 student_only = require_roles("student")
@@ -353,8 +354,19 @@ async def start_attempt(tryout_id: str, user: dict = Depends(student_only)):
     return {k: v for k, v in attempt.items() if k != "_id"}
 
 
+async def _recalibrate_tryout(tryout_id: str):
+    """Kalibrasi ulang parameter IRT butir dari seluruh attempt tersubmit (auto)."""
+    questions = await db.questions.find({"tryout_id": tryout_id}, {"_id": 0}).to_list(1000)
+    attempts = await db.attempts.find(
+        {"tryout_id": tryout_id, "status": "submitted"}, {"_id": 0}
+    ).to_list(10000)
+    params = irt.calibrate(questions, attempts)
+    for qid, p in params.items():
+        await db.questions.update_one({"id": qid}, {"$set": p})
+
+
 @router.post("/attempts/{attempt_id}/submit")
-async def submit_attempt(attempt_id: str, body: SubmitBody, user: dict = Depends(student_only)):
+async def submit_attempt(attempt_id: str, body: SubmitBody, background: BackgroundTasks, user: dict = Depends(student_only)):
     attempt = await db.attempts.find_one({"id": attempt_id, "student_id": user["id"]}, {"_id": 0})
     if not attempt:
         raise HTTPException(status_code=404, detail="Percobaan tidak ditemukan")
@@ -362,6 +374,7 @@ async def submit_attempt(attempt_id: str, body: SubmitBody, user: dict = Depends
         raise HTTPException(status_code=400, detail="Percobaan sudah dikumpulkan")
     questions = await db.questions.find({"tryout_id": attempt["tryout_id"]}, {"_id": 0}).to_list(200)
     result = grade_attempt(questions, body.answers)
+    irt_score = irt.score_attempt(questions, result.get("per_question"))
     await db.attempts.update_one(
         {"id": attempt_id},
         {"$set": {
@@ -369,9 +382,13 @@ async def submit_attempt(attempt_id: str, body: SubmitBody, user: dict = Depends
             "status": "submitted",
             "submitted_at": now_iso(),
             **result,
+            **irt_score,
         }},
     )
-    return {"ok": True, "score": result["score"], "max_score": result["max_score"], "percentage": result["percentage"]}
+    # Kalibrasi ulang parameter IRT secara otomatis dari data jawaban terbaru
+    background.add_task(_recalibrate_tryout, attempt["tryout_id"])
+    return {"ok": True, "score": result["score"], "max_score": result["max_score"],
+            "percentage": result["percentage"], **irt_score}
 
 
 @router.get("/attempts")

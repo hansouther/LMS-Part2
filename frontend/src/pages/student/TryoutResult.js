@@ -38,6 +38,19 @@ export default function TryoutResult() {
             <p className="text-white/70 text-sm">{data.tryout?.title}</p>
             <h1 className="mt-1 text-2xl font-bold">Hasil Try Out Anda</h1>
             <p className="mt-3 text-white/70 text-sm">Skor: <span className="font-mono2 font-bold text-white">{data.score} / {data.max_score}</span></p>
+            {data.irt_scaled != null && (
+              <div className="mt-3 inline-flex items-center gap-3 rounded-xl bg-white/10 px-4 py-2" data-testid="irt-score-badge">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-white/60">Skor IRT</p>
+                  <p className="font-mono2 text-xl font-bold text-[#5FD3E8]">{data.irt_scaled}</p>
+                </div>
+                <div className="h-8 w-px bg-white/15" />
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-white/60">Kemampuan (θ)</p>
+                  <p className="font-mono2 text-sm text-white">{data.theta}{data.theta_se != null ? <span className="text-white/50"> ± {data.theta_se}</span> : null}</p>
+                </div>
+              </div>
+            )}
           </div>
           <div className="text-center">
             <div className="h-28 w-28 rounded-full flex items-center justify-center border-4" style={{ borderColor: color }}>
