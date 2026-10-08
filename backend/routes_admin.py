@@ -86,6 +86,36 @@ class TryoutBody(BaseModel):
     published: bool = False
     course_id: Optional[str] = None
     kind: str = "standalone"
+    irt_scale: str = irt.DEFAULT_SCALE  # snbt | tka | raw | custom
+    irt_scale_custom: Optional[dict] = None  # {min, max, mean, sd} bila custom
+
+
+class IrtScaleBody(BaseModel):
+    irt_scale: str
+    irt_scale_custom: Optional[dict] = None
+
+
+def _clean_scale(key, custom):
+    key = (key or irt.DEFAULT_SCALE).lower()
+    if key not in irt.SCALE_PRESETS:
+        raise HTTPException(status_code=400, detail="Skala skor IRT tidak valid")
+    if key == "custom":
+        custom, err = irt.validate_custom_scale(custom or {})
+        if err:
+            raise HTTPException(status_code=400, detail=err)
+        return key, custom
+    return key, None
+
+
+async def _rescore_attempts(tryout_id: str, tryout: dict):
+    """Hitung ulang theta/skor IRT semua attempt tersubmit memakai skala Try Out."""
+    scale = irt.resolve_scale(tryout)
+    questions = await db.questions.find({"tryout_id": tryout_id}, {"_id": 0}).to_list(1000)
+    attempts = await db.attempts.find({"tryout_id": tryout_id, "status": "submitted"}, {"_id": 0}).to_list(10000)
+    for a in attempts:
+        res = irt.score_attempt(questions, a.get("per_question"), scale)
+        await db.attempts.update_one({"id": a["id"]}, {"$set": res})
+    return len(attempts)
 
 
 class QuestionBody(BaseModel):
@@ -383,7 +413,9 @@ async def list_tryouts(user: dict = Depends(admin_only)):
 
 @router.post("/tryouts")
 async def create_tryout(body: TryoutBody, background: BackgroundTasks, user: dict = Depends(admin_only)):
-    doc = {"id": new_id(), **body.model_dump(), "created_by": user["id"], "created_at": now_iso()}
+    key, custom = _clean_scale(body.irt_scale, body.irt_scale_custom)
+    doc = {"id": new_id(), **body.model_dump(), "irt_scale": key, "irt_scale_custom": custom,
+           "created_by": user["id"], "created_at": now_iso()}
     await db.tryouts.insert_one(doc)
     if doc.get("published") and doc.get("kind", "standalone") == "standalone":
         recipients = await _active_student_recipients()
@@ -397,12 +429,46 @@ async def update_tryout(tryout_id: str, body: TryoutBody, background: Background
     existing = await db.tryouts.find_one({"id": tryout_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Try Out tidak ditemukan")
-    await db.tryouts.update_one({"id": tryout_id}, {"$set": body.model_dump()})
+    key, custom = _clean_scale(body.irt_scale, body.irt_scale_custom)
+    updates = {**body.model_dump(), "irt_scale": key, "irt_scale_custom": custom}
+    await db.tryouts.update_one({"id": tryout_id}, {"$set": updates})
+    scale_changed = (existing.get("irt_scale") or irt.DEFAULT_SCALE) != key or (existing.get("irt_scale_custom") or None) != custom
+    rescored = await _rescore_attempts(tryout_id, {**existing, **updates}) if scale_changed else 0
     if body.published and not existing.get("published") and body.kind == "standalone":
         recipients = await _active_student_recipients()
         if recipients:
             background.add_task(notify_new_tryout, recipients, body.title, body.subject)
-    return {"ok": True}
+    return {"ok": True, "rescored": rescored}
+
+
+@router.get("/irt-scales")
+async def irt_scales(user: dict = Depends(admin_only)):
+    """Daftar preset skala skor IRT (SNBT, TKA, SD/SMP, Kustom)."""
+    return list(irt.SCALE_PRESETS.values())
+
+
+@router.get("/tryouts/{tryout_id}/irt-scale")
+async def get_irt_scale(tryout_id: str, user: dict = Depends(admin_only)):
+    t = await db.tryouts.find_one({"id": tryout_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Try Out tidak ditemukan")
+    return {"irt_scale": t.get("irt_scale") or irt.DEFAULT_SCALE,
+            "irt_scale_custom": t.get("irt_scale_custom"),
+            "effective": irt.resolve_scale(t)}
+
+
+@router.put("/tryouts/{tryout_id}/irt-scale")
+async def set_irt_scale(tryout_id: str, body: IrtScaleBody, user: dict = Depends(admin_only)):
+    """Ubah skala skor IRT sebuah Try Out lalu hitung ulang skor semua attempt tersubmit."""
+    t = await db.tryouts.find_one({"id": tryout_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Try Out tidak ditemukan")
+    key, custom = _clean_scale(body.irt_scale, body.irt_scale_custom)
+    await db.tryouts.update_one({"id": tryout_id}, {"$set": {"irt_scale": key, "irt_scale_custom": custom}})
+    t.update({"irt_scale": key, "irt_scale_custom": custom})
+    rescored = await _rescore_attempts(tryout_id, t)
+    return {"ok": True, "irt_scale": key, "irt_scale_custom": custom,
+            "effective": irt.resolve_scale(t), "rescored": rescored}
 
 
 @router.delete("/tryouts/{tryout_id}")
@@ -484,6 +550,8 @@ async def calibrate_tryout(tryout_id: str, user: dict = Depends(admin_only)):
     lalu hitung ulang skor IR/theta untuk semua attempt tersubmit."""
     if not await db.tryouts.find_one({"id": tryout_id}):
         raise HTTPException(status_code=404, detail="Try Out tidak ditemukan")
+    tryout = await db.tryouts.find_one({"id": tryout_id}, {"_id": 0})
+    scale = irt.resolve_scale(tryout)
     questions = await db.questions.find({"tryout_id": tryout_id}, {"_id": 0}).to_list(1000)
     attempts = await db.attempts.find(
         {"tryout_id": tryout_id, "status": "submitted"}, {"_id": 0}
@@ -503,7 +571,7 @@ async def calibrate_tryout(tryout_id: str, user: dict = Depends(admin_only)):
             qmap[qid].update(p)
     rescored = 0
     for a in attempts:
-        res = irt.score_attempt(list(qmap.values()), a.get("per_question"))
+        res = irt.score_attempt(list(qmap.values()), a.get("per_question"), scale)
         await db.attempts.update_one({"id": a["id"]}, {"$set": res})
         rescored += 1
 

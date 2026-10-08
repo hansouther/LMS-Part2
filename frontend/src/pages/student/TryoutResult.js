@@ -41,7 +41,7 @@ export default function TryoutResult() {
             {data.irt_scaled != null && (
               <div className="mt-3 inline-flex items-center gap-3 rounded-xl bg-white/10 px-4 py-2" data-testid="irt-score-badge">
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-white/60">Skor IRT</p>
+                  <p className="text-[10px] uppercase tracking-wide text-white/60">Skor IRT{data.irt_scale_label ? ` · ${data.irt_scale_label}` : ""}</p>
                   <p className="font-mono2 text-xl font-bold text-[#5FD3E8]">{data.irt_scaled}</p>
                 </div>
                 <div className="h-8 w-px bg-white/15" />

@@ -12,6 +12,8 @@ export default function TryoutResults() {
   const { data, loading } = useFetch(`/admin/tryouts/${id}/results`);
 
   const avg = data?.length ? Math.round(data.reduce((a, x) => a + x.percentage, 0) / data.length) : 0;
+  const scaleLabel = data?.find((a) => a.irt_scale_label)?.irt_scale_label;
+  const irtHidden = data?.length > 0 && data.every((a) => a.irt_scaled == null);
 
   return (
     <div data-testid="tryout-results">
@@ -19,7 +21,8 @@ export default function TryoutResults() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-[#0A1128]">Hasil & Peringkat</h1>
-          <p className="text-sm text-[#475569] mt-1">{data?.length || 0} peserta · Rata-rata {avg}%</p>
+          <p className="text-sm text-[#475569] mt-1">{data?.length || 0} peserta · Rata-rata {avg}%{scaleLabel ? <span data-testid="results-scale-label"> · Skala IRT: <span className="font-semibold text-[#0E7490]">{scaleLabel}</span></span> : null}</p>
+          {irtHidden && <p className="text-xs text-[#94A3B8] mt-1" data-testid="results-irt-hidden">Skor IRT disembunyikan untuk skala ini; peringkat memakai nilai asli (% benar).</p>}
         </div>
       </div>
 

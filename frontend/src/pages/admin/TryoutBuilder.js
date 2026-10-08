@@ -6,6 +6,7 @@ import api, { apiError } from "@/lib/api";
 import { Loading, Empty } from "@/components/common/States";
 import ConfirmButton from "@/components/common/ConfirmButton";
 import IrtBlueprintPanel from "@/components/common/IrtBlueprintPanel";
+import IrtScaleCard from "@/components/common/IrtScaleCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -181,7 +182,8 @@ export default function TryoutBuilder() {
         </div>
       </div>
 
-      <div className="mb-6">
+      <div className="mb-6 space-y-4">
+        <IrtScaleCard tryoutId={id} onSaved={bumpBlueprint} />
         <IrtBlueprintPanel tryoutId={id} version={blueprintVersion} onCalibrate={calibrateIrt} calibrating={calibrating} />
       </div>
 

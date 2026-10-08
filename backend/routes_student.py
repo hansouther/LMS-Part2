@@ -373,8 +373,9 @@ async def submit_attempt(attempt_id: str, body: SubmitBody, background: Backgrou
     if attempt["status"] == "submitted":
         raise HTTPException(status_code=400, detail="Percobaan sudah dikumpulkan")
     questions = await db.questions.find({"tryout_id": attempt["tryout_id"]}, {"_id": 0}).to_list(200)
+    tryout = await db.tryouts.find_one({"id": attempt["tryout_id"]}, {"_id": 0})
     result = grade_attempt(questions, body.answers)
-    irt_score = irt.score_attempt(questions, result.get("per_question"))
+    irt_score = irt.score_attempt(questions, result.get("per_question"), irt.resolve_scale(tryout))
     await db.attempts.update_one(
         {"id": attempt_id},
         {"$set": {

@@ -217,15 +217,87 @@ def estimate_theta(items):
     return round(theta, 3), round(math.sqrt(max(var, 0)), 3)
 
 
-def scaled_score(theta):
-    """Petakan theta -> skor skala IRT (±100-900, rata-rata 500) ala SNBT."""
+# ---------------------------------------------------------------------------
+# Skala skor IRT (dipilih per Try Out oleh admin)
+# ---------------------------------------------------------------------------
+SCALE_PRESETS = {
+    "snbt": {
+        "key": "snbt", "label": "SNBT (0–1000)", "short": "SNBT",
+        "min": 0, "max": 1000, "mean": 500, "sd": 100, "show_irt": True,
+        "desc": "Skala UTBK-SNBT: rata-rata 500, simpangan 100, rentang 0–1000.",
+    },
+    "tka": {
+        "key": "tka", "label": "TKA SMA (200–700)", "short": "TKA",
+        "min": 200, "max": 700, "mean": 450, "sd": 83, "show_irt": True,
+        "desc": "Skala Tes Kemampuan Akademik SMA: rentang 200–700 (rata-rata 450).",
+    },
+    "raw": {
+        "key": "raw", "label": "SD/SMP — Nilai Asli (1–100)", "short": "Nilai Asli",
+        "min": 1, "max": 100, "mean": 50, "sd": 17, "show_irt": False,
+        "desc": "Untuk SD/SMP hanya nilai asli (% benar) yang ditampilkan; skor IRT & θ disembunyikan.",
+    },
+    "custom": {
+        "key": "custom", "label": "Kustom", "short": "Kustom",
+        "min": 0, "max": 1000, "mean": 500, "sd": 100, "show_irt": True,
+        "desc": "Tentukan sendiri nilai minimum, maksimum, rata-rata, dan simpangan baku.",
+    },
+}
+DEFAULT_SCALE = "snbt"
+
+
+def validate_custom_scale(custom):
+    """Normalisasi & validasi skala kustom {min,max,mean,sd}. Return (dict, error)."""
+    try:
+        mn = float(custom.get("min"))
+        mx = float(custom.get("max"))
+    except Exception:
+        return None, "Nilai minimum/maksimum skala kustom wajib angka"
+    if mx <= mn:
+        return None, "Nilai maksimum harus lebih besar dari minimum"
+    mean = custom.get("mean")
+    sd = custom.get("sd")
+    try:
+        mean = float(mean) if mean not in (None, "") else (mn + mx) / 2
+        sd = float(sd) if sd not in (None, "") else (mx - mn) / 6
+    except Exception:
+        return None, "Rata-rata/simpangan baku skala kustom wajib angka"
+    if not (mn <= mean <= mx):
+        return None, "Rata-rata harus berada di antara minimum dan maksimum"
+    if sd <= 0:
+        return None, "Simpangan baku harus lebih besar dari 0"
+    return {"min": mn, "max": mx, "mean": mean, "sd": sd}, None
+
+
+def resolve_scale(tryout):
+    """Skala efektif sebuah Try Out (preset atau kustom)."""
+    key = (tryout or {}).get("irt_scale") or DEFAULT_SCALE
+    if key not in SCALE_PRESETS:
+        key = DEFAULT_SCALE
+    scale = dict(SCALE_PRESETS[key])
+    if key == "custom":
+        custom, err = validate_custom_scale((tryout or {}).get("irt_scale_custom") or {})
+        if custom:
+            scale.update(custom)
+            scale["label"] = f"Kustom ({int(custom['min'])}–{int(custom['max'])})"
+    return scale
+
+
+def scaled_score(theta, scale=None):
+    """Petakan theta -> skor skala IRT sesuai skala Try Out (default SNBT 0–1000)."""
     if theta is None:
         return None
-    return int(round(_clamp(500 + theta * 100, 100, 900)))
+    s = scale or SCALE_PRESETS[DEFAULT_SCALE]
+    if not s.get("show_irt", True):
+        return None
+    return int(round(_clamp(s["mean"] + theta * s["sd"], s["min"], s["max"])))
 
 
-def score_attempt(questions, per_question):
+def score_attempt(questions, per_question, scale=None):
     """Hitung theta & skor IRT untuk satu attempt dari per_question hasil grading."""
+    s = scale or SCALE_PRESETS[DEFAULT_SCALE]
+    if not s.get("show_irt", True):
+        return {"theta": None, "theta_se": None, "irt_scaled": None,
+                "irt_scale": s["key"], "irt_scale_label": s["label"]}
     qmap = {q["id"]: q for q in questions}
     items = []
     for pq in (per_question or []):
@@ -236,7 +308,8 @@ def score_attempt(questions, per_question):
         resp = 1 if pq.get("correct") else 0
         items.append((a, b, c, resp))
     theta, se = estimate_theta(items)
-    return {"theta": theta, "theta_se": se, "irt_scaled": scaled_score(theta)}
+    return {"theta": theta, "theta_se": se, "irt_scaled": scaled_score(theta, s),
+            "irt_scale": s["key"], "irt_scale_label": s["label"]}
 
 
 # ---------------------------------------------------------------------------
